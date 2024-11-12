@@ -18,15 +18,6 @@ if [ ! -z "$TARGET_DEVICE" ]; then
         exit
     fi
 
-    # # add 192.168.0.
-    # if [ "$TARGET_DEVICE" != "192.168.0."* ]; then
-    #     TARGET_DEVICE="192.168.0."$TARGET_DEVICE
-    # fi
-    # # add :5555
-    # if [ "$TARGET_DEVICE" != *":5555" ]; then
-    #     TARGET_DEVICE=$TARGET_DEVICE":5555"
-    # fi
-
     adb -s $TARGET_DEVICE shell rm -rf /data/local/tmp/qfrc4nos/
 
     echo "Cleaning $TARGET_DEVICE finished"
