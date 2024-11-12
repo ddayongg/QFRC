@@ -1,15 +1,5 @@
 #!/bin/bash
 
-# NDK 경로 설정
-#export ANDROID_NDK_ROOT=~/qfrc/android-ndk-r27b
-#export PATH=$ANDROID_NDK_ROOT:$PATH
-
-# NDK 프로젝트 경로 설정
-export NDK_PROJECT_PATH=~/qfrc/qfrc4nos
-
-$NDK_ROOT/ndk-build
-
-
 if [ -z "$ANDROID_NDK_ROOT" ] || [ -z "$SNPE_ROOT" ]; then
     echo "Environment not set!"
     echo "run the command below:"
@@ -29,48 +19,29 @@ if [ -z "$TARGET_DEVICE" ]; then
     exit
 fi
 
-# USB 연결일 경우 IP 주소 변환 생략
-if [[ "$TARGET_DEVICE" == "usb" || "$TARGET_DEVICE" =~ ^[A-Za-z0-9]+$ ]]; then
-    echo "Using USB connection with target device: $TARGET_DEVICE"
-    TARGET_DEVICE="$TARGET_DEVICE"
-else
-    # IP 주소 기반 장치 연결 처리
-    if [ ! -z "$TARGET_DEVICE" ] && [[ "$TARGET_DEVICE" != "192.168.0."* ]]; then
-        TARGET_DEVICE="192.168.0."$TARGET_DEVICE
-    fi
-    if [ ! -z "$TARGET_DEVICE" ] && [[ "$TARGET_DEVICE" != *":5555" ]]; then
-        TARGET_DEVICE=$TARGET_DEVICE":5555"
-    fi
- 	TARGET_DEVICE="-s $TARGET_DEVICE"
-fi
-
-
-# 부팅 스크립트 실행 (USB 연결일 때 부팅 생략)
 boot_res=$(./boot.sh $TARGET_DEVICE 1 1)
+# echo "boot_res : [$boot_res]"
 if [[ "$boot_res" == *"Booting failed"* ]]; then
     echo "build_and_install failed - $boot_res"
     exit
 fi
 
 
-#####################not in use for now
-# add 192.168.0.
-#if [ ! -z "$TARGET_DEVICE" ] && [[ "$TARGET_DEVICE" != "192.168.0."* ]]; then
- #   TARGET_DEVICE="192.168.0."$TARGET_DEVICE
-#fi
-# add :5555
-#if [ ! -z "$TARGET_DEVICE" ] && [[ "$TARGET_DEVICE" != *":5555" ]]; then
-#    TARGET_DEVICE=$TARGET_DEVICE":5555"
-#fi
+# # add 192.168.0.
+# if [ ! -z "$TARGET_DEVICE" ] && [[ "$TARGET_DEVICE" != "192.168.0."* ]]; then
+#     TARGET_DEVICE="192.168.0."$TARGET_DEVICE
+# fi
+# # add :5555
+# if [ ! -z "$TARGET_DEVICE" ] && [[ "$TARGET_DEVICE" != *":5555" ]]; then
+#     TARGET_DEVICE=$TARGET_DEVICE":5555"
+# fi
+
 # add -s
-#if [ ! -z "$TARGET_DEVICE" ] && [[ "$TARGET_DEVICE" != "-s "* ]]; then
-#    TARGET_DEVICE="-s "$TARGET_DEVICE
-#fi
-#################
+if [ ! -z "$TARGET_DEVICE" ] && [[ "$TARGET_DEVICE" != "-s "* ]]; then
+    TARGET_DEVICE="-s "$TARGET_DEVICE
+fi
 
-
-
-SOC_MANUFACTURER=`adb shell "getprop | grep -i ro.soc.manufacturer"`
+SOC_MANUFACTURER=`adb ${TARGET_DEVICE} shell "getprop | grep -i ro.soc.manufacturer"`
 if [[ "${SOC_MANUFACTURER,,}" == *"qti"* ]]; then
     NPU_TYPE=0
 elif [[ "${SOC_MANUFACTURER,,}" == *"samsung"* ]]; then
@@ -91,7 +62,7 @@ else
 fi
 
 
-hidl_name=`adb shell ls /system/lib64/libsnap_hidl.snap.samsung.so`
+hidl_name=`adb $TARGET_DEVICE shell ls /system/lib64/libsnap_hidl.snap.samsung.so`
 if [ ! -z $hidl_name ] && [ $hidl_name == "/system/lib64/libsnap_hidl.snap.samsung.so" ]; then
     IDLTYPE="hidl"
 else
@@ -101,7 +72,7 @@ fi
 
 # 0. Parse release directory name from device model, npu type, qfrc version, git version
 
-SOC_NAME=`adb shell "getprop | grep -i soc.model"`
+SOC_NAME=`adb ${TARGET_DEVICE} shell "getprop | grep -i soc.model"`
 SOC_NAME="${SOC_NAME##*[}"
 SOC_NAME=${SOC_NAME/]/}
 SOC_NAME=${SOC_NAME^^}
@@ -110,8 +81,6 @@ if [[ ! -z "${TARGET_NPU_BACKEND}" ]]; then
 fi
 
 GIT_VERSION=`git rev-parse --short=8 HEAD`
-
-
 
 QFRC_VER_MAJOR=`cat jni/qfrc/QFRCNative.hpp | grep QFRC_VER_MAJOR`
 QFRC_VER_MINOR=`cat jni/qfrc/QFRCNative.hpp | grep QFRC_VER_MINOR`
@@ -132,13 +101,12 @@ if [[ "${SOC_NAME,,}" == *"sm8"* ]]; then
     SNPE_VER=${SNPE_ROOT/\/ext\/snpe\//}
     INSTALL_SOC="${INSTALL_ROOT}/${SOC_NAME}_${SNPE_VER}"
 fi
-echo "#SNPE_VER: ${SNPE_VER}"
+
 
 # 1. HWASAN library
 
 rm -rf obj
 rm -rf libs
-#bash build_arm_android.sh "$TARGET_DEVICE" snap $INCLUDE_MODEL $AIFRC_PACKAGE $USE_IDL $USE_SRMC 0
 bash build_arm_android.sh "$TARGET_DEVICE" snap $INCLUDE_MODEL $AIFRC_PACKAGE $USE_IDL $USE_SRMC 1
 
 mkdir -p $INSTALL_SOC/libs/arm64-v8a-hwasan
@@ -166,7 +134,7 @@ if [ ! -z $AIFRC_PACKAGE ] && [ $AIFRC_PACKAGE == 1 ]; then
 else
     cp jni/qfrc/QFRC.hpp $INSTALL_SOC/include
 fi
-cp jni/qfrc/QfrcCommon.hpp $INSTALL_SOC/include 
+cp jni/qfrc/QfrcCommon.hpp $INSTALL_SOC/include
 cp jni/qfrc/QImage.hpp $INSTALL_SOC/include
 cp jni/qfrc/QTypes.hpp $INSTALL_SOC/include
 cp libs/arm64-v8a/libmcaimegpu.samsung.so $INSTALL_SOC/libs/arm64-v8a
@@ -179,7 +147,6 @@ else
 fi
 
 echo; echo "Normal Binaries are copied into $INSTALL_SOC"; echo;
-#release_aifrc_v0.9.9.ca76e587/SM8550_snap_/home/ddragon20/Qualcomm/snpe/qairt/2.26.0.240828
 
 # 3. Model files
 if [ ${NPU_TYPE} == 0 ]; then      # Qualcomm
@@ -211,7 +178,7 @@ if [ ${NPU_TYPE} == 0 ]; then      # Qualcomm
     # fi
     
     # ref-38500
-    SOC_MODEL=`adb shell "getprop | grep -i ro.soc.model"`
+    SOC_MODEL=`adb ${TARGET_DEVICE} shell "getprop | grep -i ro.soc.model"`
     if [[ "${SOC_MODEL}" == *"SM8550"* ]]; then
         MODELFILE="QFNet_Ref_e38500_snpe2.10.0.4541_tf16_sm8550_cached.dlc"
     else
@@ -246,7 +213,6 @@ elif [ ${NPU_TYPE} == 2 ]; then   # MediaTek
     echo "MediaTek currently uses Samsung's model file, so pushing models will be skipped."
 
 fi
-#/home/ddragon20/qfrc/qfrc4nos/jni/qjpeg/projects/samsung/jni/fuzzingset_jls_left
 
 MODELFILE=assets/${MODELFILE}
 if [ -f "$MODELFILE" ]; then
@@ -269,6 +235,5 @@ fi
 tree $INSTALL_SOC
 
 exit
-
 
 
