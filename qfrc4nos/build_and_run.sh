@@ -18,6 +18,7 @@ HWASAN=${7:-0}
 DEVICE_ROOT=/data/local/tmp/qfrc4nos
 RUN_UNIT_TEST=false
 
+
 if [ -z "$TARGET_DEVICE" ]; then
     echo "build_and_run failed - target device not set"
     exit
@@ -30,24 +31,14 @@ if [[ "$boot_res" == *"Booting failed"* ]]; then
     exit
 fi
 
-# USB 연결일 경우 IP 주소 변환 생략
-if [[ "$TARGET_DEVICE" == "usb" || "$TARGET_DEVICE" =~ ^[A-Za-z0-9]+$ ]]; then
-    echo "Using USB connection with target device: $TARGET_DEVICE"
-    TARGET_DEVICE="$TARGET_DEVICE"
-else
-    # IP 주소 기반 장치 연결 처리
-    if [ ! -z "$TARGET_DEVICE" ] && [[ "$TARGET_DEVICE" != "192.168.0."* ]]; then
-        TARGET_DEVICE="192.168.0."$TARGET_DEVICE
-    fi
-    if [ ! -z "$TARGET_DEVICE" ] && [[ "$TARGET_DEVICE" != *":5555" ]]; then
-        TARGET_DEVICE=$TARGET_DEVICE":5555"
-    fi
- 	TARGET_DEVICE="-s $TARGET_DEVICE"
+# add -s
+if [ ! -z "$TARGET_DEVICE" ] && [[ "$TARGET_DEVICE" != "-s "* ]]; then
+    TARGET_DEVICE="-s "$TARGET_DEVICE
 fi
 
-SOC_MANUFACTURER=`adb shell "getprop | grep -i ro.soc.manufacturer"`
+SOC_MANUFACTURER=`adb ${TARGET_DEVICE} shell "getprop | grep -i ro.soc.manufacturer"`
 if [[ "${SOC_MANUFACTURER,,}" == *"qti"* ]]; then
-    NPU_TYPE=0
+    NPU_TYPE=0 
 elif [[ "${SOC_MANUFACTURER,,}" == *"samsung"* ]]; then
     NPU_TYPE=1
 elif [[ "${SOC_MANUFACTURER,,}" == *"mediatek"* ]]; then
@@ -64,13 +55,13 @@ bash build_arm_android.sh "$TARGET_DEVICE" $TARGET_NPU_BACKEND $INCLUDE_MODEL $A
 
 # stage 2-1. prepare libs and bins
 
-adb shell "rm -r ${DEVICE_ROOT}/output"
-adb shell "mkdir -p ${DEVICE_ROOT}/assets; mkdir -p ${DEVICE_ROOT}/output; "
-adb push libs/arm64-v8a $DEVICE_ROOT
-adb push libs/armeabi-v7a $DEVICE_ROOT
+adb $TARGET_DEVICE shell "rm -r ${DEVICE_ROOT}/output"
+adb $TARGET_DEVICE shell "mkdir -p ${DEVICE_ROOT}/assets; mkdir -p ${DEVICE_ROOT}/output; "
+adb $TARGET_DEVICE push libs/arm64-v8a $DEVICE_ROOT
+adb $TARGET_DEVICE push libs/armeabi-v7a $DEVICE_ROOT
 
-adb shell "rm -r ${DEVICE_ROOT}/../outdump"
-adb shell "mkdir -p ${DEVICE_ROOT}/../outdump"
+adb $TARGET_DEVICE shell "rm -r ${DEVICE_ROOT}/../outdump"
+adb $TARGET_DEVICE shell "mkdir -p ${DEVICE_ROOT}/../outdump"
 
 # stage 2-2. run command
 
@@ -111,7 +102,7 @@ if [ ${NPU_TYPE} == 0 ]; then      # Qualcomm
     # fi
     
     # ref-38500
-    SOC_MODEL=`adb shell "getprop | grep -i ro.soc.model"`
+    SOC_MODEL=`adb ${TARGET_DEVICE} shell "getprop | grep -i ro.soc.model"`
     if [[ "${SOC_MODEL}" == *"SM8550"* ]]; then
         MODELFILE="QFNet_Ref_e38500_snpe2.10.0.4541_tf16_sm8550_cached.dlc"
     else
@@ -161,14 +152,13 @@ MODELFILE_DST=assets/${MODELFILE_DST}
 FD_MODELFILE=assets/${FD_MODELFILE}
 FD_MODELFILE_DST=assets/${FD_MODELFILE_DST}
 
-###### aifrc something...
 echo MODELFILE ${MODELFILE}
 if [ -z $INCLUDE_MODEL ] || [ $INCLUDE_MODEL != 1 ]; then
     md5sum_tobe=`md5sum ${MODELFILE}`
-    md5sum_asis=`adb shell "md5sum ${DEVICE_ROOT}/${MODELFILE_DST}"`
+    md5sum_asis=`adb $TARGET_DEVICE shell "md5sum ${DEVICE_ROOT}/${MODELFILE_DST}"`
     if [ "${md5sum_tobe:0:32}" != "${md5sum_asis:0:32}" ]; then 
         echo "Model file is different. Pushing model file..."
-        adb push ${MODELFILE} ${DEVICE_ROOT}/${MODELFILE_DST}
+        adb $TARGET_DEVICE push ${MODELFILE} ${DEVICE_ROOT}/${MODELFILE_DST}
     else
         echo "Model file already exists at ${DEVICE_ROOT}"
     fi
@@ -178,10 +168,10 @@ fi
 
 echo FD_MODELFILE ${FD_MODELFILE}
 md5sum_tobe=`md5sum ${FD_MODELFILE}`
-md5sum_asis=`adb shell "md5sum ${DEVICE_ROOT}/${FD_MODELFILE_DST}"`
+md5sum_asis=`adb $TARGET_DEVICE shell "md5sum ${DEVICE_ROOT}/${FD_MODELFILE_DST}"`
 if [ "${md5sum_tobe:0:32}" != "${md5sum_asis:0:32}" ]; then 
     echo "FD Model file is different. Pushing FD model file..."
-    adb push ${FD_MODELFILE} ${DEVICE_ROOT}/${FD_MODELFILE_DST}
+    adb $TARGET_DEVICE push ${FD_MODELFILE} ${DEVICE_ROOT}/${FD_MODELFILE_DST}
 else
     echo "FD model file already exists at ${DEVICE_ROOT}"
 fi
@@ -233,10 +223,10 @@ if [[ "${RUN_UNIT_TEST}" == "false" ]]; then
         VIDEO_SRC=${test_folder}/${TEST_FILE}.${extension}
         VIDEO_DST=${DEVICE_ROOT}/assets/${TEST_FILE}.${extension}
         md5sum_tobe=`md5sum ${VIDEO_SRC}`
-        md5sum_asis=`adb  shell "md5sum ${VIDEO_DST}"`
+        md5sum_asis=`adb $TARGET_DEVICE shell "md5sum ${VIDEO_DST}"`
         if [ "${md5sum_tobe:0:32}" != "${md5sum_asis:0:32}" ]; then 
             echo 'Pushing '${VIDEO_SRC}'...'
-            adb  push ${VIDEO_SRC} ${VIDEO_DST}
+            adb $TARGET_DEVICE push ${VIDEO_SRC} ${VIDEO_DST}
         fi
 
         MAXTHREAD=4
@@ -269,43 +259,37 @@ if [[ "${RUN_UNIT_TEST}" == "false" ]]; then
         ARG_NPU="-n ${NPU_BACKEND} -q ${QUANT_TYPE}"
         
         echo; echo "adb command :"
-        echo ${TARGET_CMD}  ${ARG_MODELPATH}  ${ARG_MISC}  ${ARG_NPU}  ${ARG_VIDEO}
+        echo ${TARGET_CMD} ${ARG_MODELPATH} ${ARG_MISC} ${ARG_NPU} ${ARG_VIDEO}
         echo
          
-        adb logcat -c
+        adb $TARGET_DEVICE logcat -c
 
-
-        adb shell "${TARGET_CMD} ${ARG_MODELPATH} ${ARG_VIDEO} ${ARG_MISC} ${ARG_NPU}"
-        #export LD_LIBRARY_PATH=/data/local/tmp/qfrc4nos/arm64-v8a:$LD_LIBRARY_PATH
-
-        
+        adb $TARGET_DEVICE shell "${TARGET_CMD} ${ARG_MODELPATH} ${ARG_VIDEO} ${ARG_MISC} ${ARG_NPU}"
 
         mkdir -p lastdump/${currentDataTime}
         # rm lastdump/lastdump*
-        adb logcat -d > lastdump/${currentDataTime}/${TEST_FILE}.txt
+        adb $TARGET_DEVICE logcat -d > lastdump/${currentDataTime}/${TEST_FILE}.txt
 
-        break
+        # break
         # sleep 10
     done
-    
-    echo "e! " 
 
     if [ ! -z $INCLUDE_MODEL ] && [ $INCLUDE_MODEL == 2 ]; then
-        adb pull ${DEVICE_ROOT}/QfrcModels.hpp jni/qfrc/
-        adb pull ${DEVICE_ROOT}/QfrcModels.cpp jni/qfrc/
+        adb $TARGET_DEVICE pull ${DEVICE_ROOT}/QfrcModels.hpp jni/qfrc/
+        adb $TARGET_DEVICE pull ${DEVICE_ROOT}/QfrcModels.cpp jni/qfrc/
     else
-        adb pull ${DEVICE_ROOT}/output
+        adb $TARGET_DEVICE pull ${DEVICE_ROOT}/output
     fi
     
     rm -rf outdump
-    adb pull ${DEVICE_ROOT}/../outdump
+    adb $TARGET_DEVICE pull ${DEVICE_ROOT}/../outdump
 
 else
     # adb $TARGET_DEVICE shell "cd ${DEVICE_ROOT} && LD_LIBRARY_PATH=${DEVICE_ROOT}/arm64-v8a ./arm64-v8a/testcases --gtest_output=xml:gtest_result.xml --gtest_repeat=1 --gtest_break_on_failure" # --gtest_shuffle" --gtest_break_on_failure  
-    adb push jni/tests/run_top.sh ${DEVICE_ROOT}/arm64-v8a/run_top.sh
-    adb shell "rm -rf ${DEVICE_ROOT}/top"
-    adb shell "mkdir -p ${DEVICE_ROOT}/top"
-    adb shell "chmod +x ${DEVICE_ROOT}/top"
+    adb $TARGET_DEVICE push jni/tests/run_top.sh ${DEVICE_ROOT}/arm64-v8a/run_top.sh
+    adb $TARGET_DEVICE shell "rm -rf ${DEVICE_ROOT}/top"
+    adb $TARGET_DEVICE shell "mkdir -p ${DEVICE_ROOT}/top"
+    adb $TARGET_DEVICE shell "chmod +x ${DEVICE_ROOT}/top"
 
     mkdir -p output/unitTest/top
     mkdir -p output/unitTest
@@ -330,17 +314,17 @@ else
     # adb $TARGET_DEVICE shell "cd ${DEVICE_ROOT} && LD_LIBRARY_PATH=${DEVICE_ROOT}/arm64-v8a ./arm64-v8a/testcases --gtest_repeat=1500 --gtest_filter=qfrctest_future_async.insert_deinit_after_init" > output/unitTest/log/01gtest_result_deinit_after_init.txt
     # adb $TARGET_DEVICE logcat -d  > output/unitTest/logcat/01_deinit_after_init.txt
 
-    adb logcat -c 
-    adb shell "cd ${DEVICE_ROOT} && LD_LIBRARY_PATH=${DEVICE_ROOT}/arm64-v8a ./arm64-v8a/testcases --gtest_repeat=100 --gtest_filter=qfrctest_future_async.insert_deinit_after_set" > output/unitTest/log/02gtest_result_deinit_after_set.txt
-    adb logcat -d > output/unitTest/logcat/02_deinit_after_set.txt
+    adb $TARGET_DEVICE logcat -c 
+    adb $TARGET_DEVICE shell "cd ${DEVICE_ROOT} && LD_LIBRARY_PATH=${DEVICE_ROOT}/arm64-v8a ./arm64-v8a/testcases --gtest_repeat=100 --gtest_filter=qfrctest_future_async.insert_deinit_after_set" > output/unitTest/log/02gtest_result_deinit_after_set.txt
+    adb $TARGET_DEVICE logcat -d > output/unitTest/logcat/02_deinit_after_set.txt
 
     # adb $TARGET_DEVICE logcat -c 
     # adb $TARGET_DEVICE shell "cd ${DEVICE_ROOT} && LD_LIBRARY_PATH=${DEVICE_ROOT}/arm64-v8a ./arm64-v8a/testcases --gtest_repeat=1500 --gtest_filter=qfrctest_future_async.insert_deinit_after_releaseQImage" > output/unitTest/log/04gtest_result_deinit_after_releaseQImage.txt
     # adb $TARGET_DEVICE logcat -d  > output/unitTest/logcat/04_deinit_after_releaseQImage.txt
     
-    adb logcat -c 
-    adb shell "cd ${DEVICE_ROOT} && LD_LIBRARY_PATH=${DEVICE_ROOT}/arm64-v8a ./arm64-v8a/testcases --gtest_repeat=100 --gtest_filter=qfrctest_future_async.insert_deinit_after_process" > output/unitTest/log/03gtest_result_deinit_after_process.txt
-    adb logcat -d  > output/unitTest/logcat/04_deinit_after_process.txt
+    adb $TARGET_DEVICE logcat -c 
+    adb $TARGET_DEVICE shell "cd ${DEVICE_ROOT} && LD_LIBRARY_PATH=${DEVICE_ROOT}/arm64-v8a ./arm64-v8a/testcases --gtest_repeat=100 --gtest_filter=qfrctest_future_async.insert_deinit_after_process" > output/unitTest/log/03gtest_result_deinit_after_process.txt
+    adb $TARGET_DEVICE logcat -d  > output/unitTest/logcat/04_deinit_after_process.txt
     
     # adb $TARGET_DEVICE logcat -c 
     # adb $TARGET_DEVICE shell "cd ${DEVICE_ROOT} && LD_LIBRARY_PATH=${DEVICE_ROOT}/arm64-v8a ./arm64-v8a/testcases --gtest_repeat=1500 --gtest_filter=qfrctest_future_async.insert_deinit_after_qfrc_finishInsertion" > output/unitTest/log/05gtest_result_deinit_after_finishInsertion.txt
@@ -385,5 +369,5 @@ else
     # -----------------------------------------------------------------------------------------------------------------------------------------------------------------
     # pull memUsage(top)
     # -----------------------------------------------------------------------------------------------------------------------------------------------------------------
-    adb pull ${DEVICE_ROOT}/top output/unitTest
+    adb $TARGET_DEVICE pull ${DEVICE_ROOT}/top output/unitTest
 fi
